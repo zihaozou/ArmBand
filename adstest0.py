@@ -49,13 +49,12 @@ def GPIOsetup():
     GPIO.setup(PWDN_PIN, GPIO.OUT)
     GPIO.setup(CS_PIN, GPIO.OUT)
     GPIO.setup(START_PIN, GPIO.OUT)
-    GPIO.setup(DRDY_PIN, GPIO.OUT)
+    GPIO.setup(DRDY_PIN, GPIO.IN)
 
 def GPIOcleanup():
     GPIO.output(PWDN_PIN, GPIO.LOW)    
     GPIO.output(CS_PIN, GPIO.LOW)     
-    GPIO.output(START_PIN, GPIO.LOW)     
-    GPIO.output(DRDY_PIN, GPIO.LOW)     
+    GPIO.output(START_PIN, GPIO.LOW)          
     GPIO.cleanup()                     # Release resource
 
 class ADS:
@@ -75,15 +74,17 @@ class ADS:
         self.Stop_Read_Data_Continuous() # SDATAC command
         time.sleep(0.3)
         
+        self.Reg_Read(REG_ID)
+        time.sleep(0.01)
         self.Reg_Write(REG_CONFIG1, 0x00) 		#Set sampling rate to 125 SPS
         time.sleep(0.01)
-        self.Reg_Write(REG_CONFIG2, 0b10100000)	#Lead-off comp off, test signal disabled
+        self.Reg_Write(REG_CONFIG2, 0b10100011)	#Lead-off comp off, test signal disabled
         time.sleep(0.01)
         self.Reg_Write(REG_LOFF, 0b00010000)		#Lead-off defaults
         time.sleep(0.01)
-        self.Reg_Write(REG_CH1SET, 0b01000000)	#Ch 1 enabled, gain 6, connected to electrode in
+        self.Reg_Write(REG_CH1SET, 0b01000101)	#Ch 1 enabled, gain 6, connected to electrode in
         time.sleep(0.01)
-        self.Reg_Write(REG_CH2SET, 0b01100000)	#Ch 2 enabled, gain 6, connected to electrode in
+        self.Reg_Write(REG_CH2SET, 0b01100101)	#Ch 2 enabled, gain 6, connected to electrode in
         time.sleep(0.01)
         self.Reg_Write(REG_RLDSENS, 0b00101100)	#RLD settings: fmod/16, RLD enabled, RLD inputs from Ch2 only
         time.sleep(0.01)
@@ -176,7 +177,33 @@ class ADS:
         spi.writebytes([DATA])	   #Send value to record into register
         time.sleep(0.002)
         GPIO.output(CS_PIN, True)
-
+    def Reg_Read(self,ADDRESS):
+        COMMAND=ADDRESS|RREG
+        GPIO.output(CS_PIN, False)
+        time.sleep(0.002)
+        GPIO.output(CS_PIN, True)
+        time.sleep(0.002)
+        GPIO.output(CS_PIN, False)
+        time.sleep(0.002)
+        spi.writebytes([COMMAND])
+        spi.writebytes([0x00])
+        result=spi.readbytes(1)
+        time.sleep(0.002)
+        GPIO.output(CS_PIN, True)
+        print(result)
+    def Read_Data(self):
+        lst=[]
+        GPIO.output(CS_PIN, False)
+        for i in range(9):
+            lst.append(spi.readbytes(1))
+        GPIO.output(CS_PIN, False)
+        print(lst)
 t1 = ADS()
 t1.Initiate()
+for i in range(10):
+    while True:
+        if not GPIO.input(DRDY_PIN):
+                t1.Read_Data()
+                break
 GPIOcleanup()
+
