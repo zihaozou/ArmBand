@@ -60,7 +60,6 @@ def GPIOcleanup():
 class ADS:
     def __init__(self):
         GPIOsetup()
-
     def Initiate(self):
         self.Reset()
         time.sleep(0.1)
@@ -196,14 +195,15 @@ class ADS:
         GPIO.output(CS_PIN, False)
         for i in range(9):
             lst.append(spi.readbytes(1))
-        GPIO.output(CS_PIN, False)
+        GPIO.output(CS_PIN, True)
         print(lst)
 t1 = ADS()
 t1.Initiate()
-for i in range(10):
+for i in range(30):
     while True:
         if not GPIO.input(DRDY_PIN):
                 t1.Read_Data()
                 break
+spi.close()
 GPIOcleanup()
 
