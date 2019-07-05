@@ -106,6 +106,11 @@ class ADS:
         time.sleep(0.1)
         GPIO.output(PWDN_PIN, True)
         time.sleep(0.1)
+    def PowerDown(self):
+        GPIO.output(PWDN_PIN, True)
+        time.sleep(0.1)
+        GPIO.output(PWDN_PIN, False)
+        time.sleep(5)
 
     def Disable_Start(self):
         GPIO.output(START_PIN, False)
@@ -204,6 +209,7 @@ for i in range(30):
         if not GPIO.input(DRDY_PIN):
                 t1.Read_Data()
                 break
+t1.PowerDown()
 spi.close()
 GPIOcleanup()
 
