@@ -2,7 +2,6 @@ import RPi.GPIO as GPIO
 import time
 import spidev
 import threading
-
 CONFIG_SPI_MASTER_DUMMY   = 0xFF
 
 # Register Read Commands
@@ -58,6 +57,7 @@ def GPIOcleanup():
     GPIO.cleanup()                     # Release resource
 
 class ADS:
+    VREF = 2.42
     def __init__(self):
         GPIOsetup()
     def Initiate(self):
@@ -81,9 +81,9 @@ class ADS:
         time.sleep(0.01)
         self.Reg_Write(REG_LOFF, 0b00010000)		#Lead-off defaults
         time.sleep(0.01)
-        self.Reg_Write(REG_CH1SET, 0b01000101)	#Ch 1 enabled, gain 6, connected to electrode in
+        self.Reg_Write(REG_CH1SET, 0b00000101)	#Ch 1 enabled, gain 6, test signal
         time.sleep(0.01)
-        self.Reg_Write(REG_CH2SET, 0b01100101)	#Ch 2 enabled, gain 6, connected to electrode in
+        self.Reg_Write(REG_CH2SET, 0b00000101)	#Ch 2 enabled, gain 6, test signal
         time.sleep(0.01)
         self.Reg_Write(REG_RLDSENS, 0b00101100)	#RLD settings: fmod/16, RLD enabled, RLD inputs from Ch2 only
         time.sleep(0.01)
@@ -107,6 +107,7 @@ class ADS:
         GPIO.output(PWDN_PIN, True)
         time.sleep(0.1)
     def PowerDown(self):
+        print('Powering Down')
         GPIO.output(PWDN_PIN, True)
         time.sleep(0.1)
         GPIO.output(PWDN_PIN, False)
@@ -181,6 +182,7 @@ class ADS:
         spi.writebytes([DATA])	   #Send value to record into register
         time.sleep(0.002)
         GPIO.output(CS_PIN, True)
+        
     def Reg_Read(self,ADDRESS):
         COMMAND=ADDRESS|RREG
         GPIO.output(CS_PIN, False)
@@ -195,20 +197,56 @@ class ADS:
         time.sleep(0.002)
         GPIO.output(CS_PIN, True)
         print(result)
+        
     def Read_Data(self):
         lst=[]
         GPIO.output(CS_PIN, False)
         for i in range(9):
             lst.append(spi.readbytes(1))
         GPIO.output(CS_PIN, True)
+        Ch1,Ch2=self.Process_Data(lst)
         print(lst)
+        Ch1=self.Int_To_Volt(Ch1)
+        Ch2=self.Int_To_Volt(Ch2)
+        print('Channel 1 data is'+str(Ch1)+',Channel 2 data is'+str(Ch2))
+        return lst
+        
+    def Read_Data_times(self, times):
+        for i in range(times):
+            while True:
+                if not GPIO.input(DRDY_PIN):
+                        t1.Read_Data()
+                        break
+                        
+    def twosCom_binDec(self,bin, digit):
+        while len(bin)<digit :
+                bin = '0'+bin
+        if bin[0] == '0':
+                return int(bin, 2)
+        else:
+                return -1 * (int(''.join('1' if x == '0' else '0' for x in bin), 2) + 1)
+
+    def twosCom_decBin(self,dec, digit):
+        if dec>=0:
+                bin1 = bin(dec).split("0b")[1]
+                while len(bin1)<digit :
+                        bin1 = '0'+bin1
+                return bin1
+        else:
+                bin1 = -1*dec
+                return bin(dec-pow(2,digit)).split("0b")[1]
+    def Process_Data(self,lst):
+        Ch1=str("{0:08b}".format(int(lst[3][0])))+str("{0:08b}".format(int(lst[4][0])))+str("{0:08b}".format(int(lst[5][0])))
+        Ch1=self.twosCom_binDec(Ch1, 24)
+        Ch2=str("{0:08b}".format(int(lst[6][0])))+str("{0:08b}".format(int(lst[7][0])))+str("{0:08b}".format(int(lst[8][0])))
+        Ch2=self.twosCom_binDec(Ch2, 24)
+        return Ch1,Ch2
+    def Int_To_Volt(self,data):
+        volt=data*(2*2.42/6)/(2**23-1)
+        return volt
 t1 = ADS()
 t1.Initiate()
-for i in range(30):
-    while True:
-        if not GPIO.input(DRDY_PIN):
-                t1.Read_Data()
-                break
+t1.Read_Data_times(200)
 t1.PowerDown()
 spi.close()
 GPIOcleanup()
