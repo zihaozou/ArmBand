@@ -2,6 +2,13 @@ import RPi.GPIO as GPIO
 import time
 import spidev
 import threading
+from datetime import datetime
+from matplotlib import pyplot
+from matplotlib.animation import FuncAnimation
+import bluetooth
+import time
+import random
+
 CONFIG_SPI_MASTER_DUMMY   = 0xFF
 
 # Register Read Commands
@@ -58,8 +65,31 @@ def GPIOcleanup():
 
 class ADS:
     VREF = 2.42
+    #figue = pyplot.figure()
+    #ax= figue.add_subplot(111)
+    #i=0
+    #x_data, y_data = [], []
     def __init__(self):
         GPIOsetup()
+        
+    def setup_connection(self):
+        self.server_socket=bluetooth.BluetoothSocket( bluetooth.RFCOMM )
+        port = 1
+        self.server_socket.bind(("",port))
+        self.server_socket.listen(1)
+        print "Waiting for connection..."
+        self.client_socket,address = self.server_socket.accept()
+        print "Accepted connection from ",address
+    def send_data(self, message):
+        self.client_socket.send(message)
+    def close(self):
+        self.client_socket.close()
+        self.server_socket.close()
+    def receive_data(self):
+        data = self.client_socket.recv(1024)
+        print "Received data is: ", data
+        return data
+        
     def Initiate(self):
         self.Reset()
         time.sleep(0.1)
@@ -75,29 +105,34 @@ class ADS:
         
         self.Reg_Read(REG_ID)
         time.sleep(0.01)
+        
         self.Reg_Write(REG_CONFIG1, 0x00) 		#Set sampling rate to 125 SPS
         time.sleep(0.01)
-        self.Reg_Write(REG_CONFIG2, 0b10100011)	#Lead-off comp off, test signal disabled
+        self.Reg_Write(REG_CONFIG2, 0b10100000)	#Lead-off comp off, test signal disabled
         time.sleep(0.01)
         self.Reg_Write(REG_LOFF, 0b00010000)		#Lead-off defaults
         time.sleep(0.01)
-        self.Reg_Write(REG_CH1SET, 0b00000101)	#Ch 1 enabled, gain 6, test signal
+        self.Reg_Write(REG_CH1SET, 0b00000000)	#Ch 1 enabled, gain 6, test signal
         time.sleep(0.01)
-        self.Reg_Write(REG_CH2SET, 0b00000101)	#Ch 2 enabled, gain 6, test signal
+        self.Reg_Write(REG_CH2SET, 0b00000000)	#Ch 2 enabled, gain 6, test signal
         time.sleep(0.01)
         self.Reg_Write(REG_RLDSENS, 0b00101100)	#RLD settings: fmod/16, RLD enabled, RLD inputs from Ch2 only
         time.sleep(0.01)
         self.Reg_Write(REG_LOFFSENS, 0x00)		#LOFF settings: all disabled
         time.sleep(0.01)
                                                             #Skip register 8, LOFF Settings default
-        self.Reg_Write(REG_RESP1, 0b11110010)		#Respiration: MOD/DEMOD turned only, phase 0
+        self.Reg_Write(REG_RESP1, 0b00000010)		#Respiration: MOD/DEMOD turned only, phase 0
         time.sleep(0.01)
-        self.Reg_Write(REG_RESP2, 0b00000011)		#Respiration: Calib OFF, respiration freq defaults
+        self.Reg_Write(REG_RESP2, 0b00110111)		#Respiration: Calib OFF, respiration freq defaults
+        time.sleep(0.01)
+        self.Reg_Read(REG_CH1SET)
+        time.sleep(0.01)
+        self.Reg_Read(REG_CH2SET)
         time.sleep(0.01)
         self.Start_Read_Data_Continuous()
         time.sleep(0.01)
         self.Enable_Start()
-        
+        self.setup_connection()
         
     def Reset(self):
         GPIO.output(PWDN_PIN, True)
@@ -108,6 +143,8 @@ class ADS:
         time.sleep(0.1)
     def PowerDown(self):
         print('Powering Down')
+        self.Disable_Start()
+        self.Stop_Read_Data_Continuous()
         GPIO.output(PWDN_PIN, True)
         time.sleep(0.1)
         GPIO.output(PWDN_PIN, False)
@@ -199,25 +236,34 @@ class ADS:
         print(result)
         
     def Read_Data(self):
-        lst=[]
-        GPIO.output(CS_PIN, False)
-        for i in range(9):
-            lst.append(spi.readbytes(1))
-        GPIO.output(CS_PIN, True)
-        Ch1,Ch2=self.Process_Data(lst)
-        print(lst)
-        Ch1=self.Int_To_Volt(Ch1)
-        Ch2=self.Int_To_Volt(Ch2)
-        print('Channel 1 data is'+str(Ch1)+',Channel 2 data is'+str(Ch2))
-        return lst
-        
+        while True:
+                if not GPIO.input(DRDY_PIN):
+                        lst=[]
+                        GPIO.output(CS_PIN, False)
+                        for i in range(9):
+                                lst.append(spi.readbytes(1))
+                        GPIO.output(CS_PIN, True)
+                        print(lst)
+                        Ch1,Ch2=self.Process_Data(lst)
+                        temp=self.Volt_To_Temp(Ch1)
+                        self.Volt_To_Temp(Ch2)
+                        print('Channel 1 data is'+str(Ch1)+',Channel 2 data is'+str(Ch2))
+                        break
+        return Ch2
     def Read_Data_times(self, times):
+        while 1:
+                rcvd = self.receive_data()
+                if rcvd == "Start":
+                        break
         for i in range(times):
             while True:
                 if not GPIO.input(DRDY_PIN):
-                        t1.Read_Data()
+                        self.send_data(str(self.Read_Data()*10**2))
+                        while 1:
+                                recv1=self.receive_data()
+                                if recv1 == "OK":
+                                        break
                         break
-                        
     def twosCom_binDec(self,bin, digit):
         while len(bin)<digit :
                 bin = '0'+bin
@@ -236,18 +282,32 @@ class ADS:
                 bin1 = -1*dec
                 return bin(dec-pow(2,digit)).split("0b")[1]
     def Process_Data(self,lst):
-        Ch1=str("{0:08b}".format(int(lst[3][0])))+str("{0:08b}".format(int(lst[4][0])))+str("{0:08b}".format(int(lst[5][0])))
-        Ch1=self.twosCom_binDec(Ch1, 24)
-        Ch2=str("{0:08b}".format(int(lst[6][0])))+str("{0:08b}".format(int(lst[7][0])))+str("{0:08b}".format(int(lst[8][0])))
-        Ch2=self.twosCom_binDec(Ch2, 24)
+        Ch1=int(str("{0:08b}".format(int(lst[3][0])))+str("{0:08b}".format(int(lst[4][0])))+str("{0:08b}".format(int(lst[5][0]))),base=2)
+        print(Ch1)
+        temp=Ch1&0x800000
+        if temp>=8388608:
+            Ch1=Ch1-2**24
+        Ch1=Ch1*(48.08*(10**(-9)))
+        Ch2=int(str("{0:08b}".format(int(lst[6][0])))+str("{0:08b}".format(int(lst[7][0])))+str("{0:08b}".format(int(lst[8][0]))),base=2)
+        print(Ch2)
+        temp=Ch2&0x800000
+        if temp>=8388608:
+            Ch2=Ch2-2**24
+        Ch2=Ch2*(48.08*(10**(-9)))
         return Ch1,Ch2
-    def Int_To_Volt(self,data):
-        volt=data*(2*2.42/6)/(2**23-1)
-        return volt
+    def Volt_To_Temp(self,data):
+        temp=(data*(10**6)-145300)/490+25
+        print('temperature is'+str(temp))
+        return temp
+    
+        
+        
+        
 t1 = ADS()
 t1.Initiate()
-t1.Read_Data_times(200)
+t1.Read_Data_times(5000)
+#animation = FuncAnimation(t1.figue, t1.update, interval=0.001)
+#pyplot.show()
 t1.PowerDown()
 spi.close()
 GPIOcleanup()
-
