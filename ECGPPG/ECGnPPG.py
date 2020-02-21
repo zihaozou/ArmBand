@@ -308,18 +308,19 @@ class ECGPPGCharacteristic(Characteristic):
         while True:
             if not self.notifying:
                 return
-            DataStr=''
+            DataStr=list()
             clkbase=time.clock()
             for i in range(1000):
                 clk=time.clock()-clkbase
                 ecg=Read_Data()
                 ppg=PPGdata()
-                DataStr=DataStr+str(round(clk,5))+','+str(round(ecg,5))+','+str(round(ppg,5))+';'
+                f=str(round(clk,5))+','+str(round(ecg,5))+','+str(round(ppg,5))+';'
+                DataStr.append(f)
                 if not self.notifying:
                     return
             value=[]
-            a=DataStr[:99]
-            DataStr=DataStr[100:]
+            a=DataStr.pop(0)
+            a=a+DataStr.pop(0)
             a='h;'+a
             for c in a:
                 value.append(dbus.Byte(c.encode()))
@@ -328,12 +329,9 @@ class ECGPPGCharacteristic(Characteristic):
             pkgcounter=0
             while len(DataStr)!=0:
                 value=[]
-                if len(DataStr)>100:
-                    a=DataStr[:99]
-                    DataStr=DataStr[100:]
-                else:
-                    a=DataStr
-                    DataStr=''
+                a=DataStr.pop(0)
+                if len(DataStr)!=0:
+                    a=a+DataStr.pop(0)
                 if len(DataStr)==0:
                     a='t;'+a
                 else:
@@ -345,7 +343,7 @@ class ECGPPGCharacteristic(Characteristic):
                 #print('sending')
                 self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
                 pkgcounter=pkgcounter+1
-                time.sleep(0.05)
+                time.sleep(0.1)
             time.sleep(10)
             if not self.notifying:
                     break
