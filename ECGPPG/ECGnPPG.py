@@ -61,7 +61,6 @@ Vlsb=0.01953125
 #setting the GATT service
 GATT_CHRC_IFACE = "org.bluez.GattCharacteristic1"
 NOTIFY_TIMEOUT = 20
-
 def main():
     ECGstartup()
     BLEconnection=Application()
@@ -286,72 +285,46 @@ class ECGPPGAdvertisement(Advertisement):
 
 class ECGPPGService(Service):
     ECGPPG_SVC_UUID = "00000001-710e-4a5b-8d75-3e5b444bc3cf"
-
     def __init__(self, index):
         Service.__init__(self, index, self.ECGPPG_SVC_UUID, True)
         self.add_characteristic(ECGPPGCharacteristic(self))
-
+        self.add_characteristic(MissCharacteristic(self))
+DataStr=list()
 class ECGPPGCharacteristic(Characteristic):
     ECGPPG_CHARACTERISTIC_UUID = "00000002-710e-4a5b-8d75-3e5b444bc3cf"
-    ConditionKey=threading.Lock()
-    breakflag=False
-    p = None
+    count=0
+    global DataStr
     def __init__(self, service):
         self.notifying = False
-
         Characteristic.__init__(
                 self, self.ECGPPG_CHARACTERISTIC_UUID,
                 ["notify", "read"], service)
         self.add_descriptor(ECGPPGDescriptor(self))
 
     def get_ECGPPG_signal(self):
-        while True:
-            if not self.notifying:
-                return
-            DataStr=list()
-            clkbase=time.clock()
-            for i in range(1000):
-                clk=time.clock()-clkbase
-                ecg=Read_Data()
-                ppg=PPGdata()
-                f=str(round(clk,5))+','+str(round(ecg,5))+','+str(round(ppg,5))+';'
-                DataStr.append(f)
-                if not self.notifying:
-                    return
-            value=[]
-            a=DataStr.pop(0)
-            a=a+DataStr.pop(0)
-            a='h;'+a
+        print("in get")
+        print(DataStr[999])
+        value=[]
+        if self.count<len(DataStr):
+            print(DataStr[self.count])
+            a=str(DataStr[self.count])+(DataStr[self.count])
+            print(a)
+            a=str(self.count)+";"+a
+            print(a)
             for c in a:
                 value.append(dbus.Byte(c.encode()))
-            self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
-            time.sleep(0.05)
-            pkgcounter=0
-            while len(DataStr)!=0:
-                value=[]
-                a=DataStr.pop(0)
-                if len(DataStr)!=0:
-                    a=a+DataStr.pop(0)
-                if len(DataStr)==0:
-                    a='t;'+a
-                else:
-                    a=str(pkgcounter)+';'+a
-                for c in a:
-                    value.append(dbus.Byte(c.encode()))
-                if not self.notifying:
-                    return
-                #print('sending')
-                self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
-                pkgcounter=pkgcounter+1
-                time.sleep(0.1)
-            time.sleep(10)
-            if not self.notifying:
-                    break
+            print(value)
+            print("here")
+            self.count=self.count+1
+        else:
+            for c in "end;":
+                value.append(dbus.Byte(c.encode()))
+        print(value)
+        return value
     def set_ECGPPG_callback(self):
         if self.notifying:
             value = self.get_ECGPPG_signal()
             self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
-
         return self.notifying
 
     def StartNotify(self):
@@ -359,15 +332,30 @@ class ECGPPGCharacteristic(Characteristic):
             return
         print('start notify')
         self.notifying = True
-        self.get_ECGPPG_signal()
-        #self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
-        #self.add_timeout(NOTIFY_TIMEOUT, self.set_ECGPPG_callback)
-
+        self.collectdata()
+        print(DataStr[999])
+        value=self.get_ECGPPG_signal()
+        self.PropertiesChanged(GATT_CHRC_IFACE, {"Value": value}, [])
+        self.add_timeout(NOTIFY_TIMEOUT, self.set_ECGPPG_callback)
+        print("one notify finished")
     def StopNotify(self):
         self.notifying = False
+        this.count=0
     def ReadValue(self, options):
-        #value = self.get_ECGPPG_signal()
-        return 1
+        value = self.get_ECGPPG_signal()
+        return value
+    def collectdata(self):
+        DataStr=list()
+        clkbase=time.clock()
+        for i in range(1000):
+            clk=time.clock()-clkbase
+            ecg=Read_Data()
+            ppg=PPGdata()
+            f=str(round(clk,5))+','+str(round(ecg,5))+','+str(round(ppg,5))+';'
+            DataStr.append(f)
+            print(i)
+        print(DataStr[999])
+        return
 class ECGPPGDescriptor(Descriptor):
     ECGPPG_DESCRIPTOR_UUID = "2901"
     ECGPPG_DESCRIPTOR_VALUE = "ECG first, PPG second"
@@ -386,5 +374,23 @@ class ECGPPGDescriptor(Descriptor):
             value.append(dbus.Byte(c.encode()))
 
         return value
+class MissCharacteristic(Characteristic):
+    MISS_CHARACTERISTIC_UUID = "ac08b9d1-c702-4cdb-b5ad-edb2f42ad7b9"
+    missin='-1;'
+    def __init__(self, service):
+        Characteristic.__init__(
+                self, self.MISS_CHARACTERISTIC_UUID,
+                ["write", "read"], service)
+    def WriteValue(self, value, options):
+        self.missin=chr(value[0])+";"+DataStr[int(chr(value[0]))*2]+DataStr[int(chr(value[0]))*2+1]
+    def ReadValue(self, options):
+        value = []
+        for c in self.missin:
+            value.append(dbus.Byte(c.encode()))
+        return value
+
+
+
+
 
 main()
